@@ -31,6 +31,59 @@ void setNonBlocking(SOCKET socket)
 #endif
 }
 
+void sendMessage(SOCKET clientSocket, const std::string &message)
+{
+#ifdef _WIN32
+    if (send(clientSocket, message.c_str(), message.length(), 0) == SOCKET_ERROR)
+    {
+        if (WSAGetLastError() != WSAEWOULDBLOCK)
+        {
+            std::cerr << "Send failed\n";
+        }
+    }
+#else
+    if (send(clientSocket, message.c_str(), message.length(), 0) == -1)
+    {
+        if (errno != EWOULDBLOCK && errno != EAGAIN)
+        {
+            std::cerr << "Send failed\n";
+        }
+    }
+#endif
+}
+
+bool processInput(std::string &currentMessage, bool &messageInProgress, SOCKET clientSocket)
+{
+    char c = 0;
+#ifdef _WIN32
+    if (_kbhit())
+    {
+        c = _getch();
+#else
+    if (read(STDIN_FILENO, &c, 1) > 0)
+    {
+#endif
+        if (c == '\n')
+        {
+            if (currentMessage == "quit")
+            {
+                return false; // 退出
+            }
+
+            // 发送消息
+            sendMessage(clientSocket, currentMessage);
+
+            currentMessage.clear();
+            messageInProgress = false;
+        }
+        else
+        {
+            currentMessage += c;
+        }
+    }
+    return true; // 继续
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -115,47 +168,15 @@ int main()
             messageInProgress = true;
         }
 
-// 非阻塞方式检查用户输入
-#ifdef _WIN32
-        if (_kbhit())
-        {
-            char c = getchar();
-#else
-        char c;
-        if (read(STDIN_FILENO, &c, 1) > 0)
-        {
-#endif
-            if (c == '\n')
-            {
-                if (currentMessage == "quit")
-                {
-                    break;
-                }
+        // 非阻塞方式检查用户输入
+        std::string currentMessage;
+        bool messageInProgress = false;
 
-                // 发送消息
-                if (send(clientSocket, currentMessage.c_str(), currentMessage.length(), 0) == SOCKET_ERROR)
-                {
-#ifdef _WIN32
-                    if (WSAGetLastError() != WSAEWOULDBLOCK)
-                    {
-                        std::cerr << "Send failed\n";
-                        break;
-                    }
-#else
-                    if (errno != EWOULDBLOCK && errno != EAGAIN)
-                    {
-                        std::cerr << "Send failed\n";
-                        break;
-                    }
-#endif
-                }
-
-                currentMessage.clear();
-                messageInProgress = false;
-            }
-            else
+        while (true)
+        {
+            if (!processInput(currentMessage, messageInProgress, clientSocket))
             {
-                currentMessage += c;
+                break; // 用户输入“quit”，退出循环
             }
         }
 
